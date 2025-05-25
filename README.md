@@ -36,6 +36,28 @@ Auto-Security transforms your OpenWRT router into a professional-grade security 
 - 📂 **Comprehensive logging**
 - 🔄 **Easy ban management**
 
+## 🚀 Zero Dependencies
+
+Unlike heavy solutions like fail2ban, Auto-Security is purpose-built for OpenWRT:
+
+- **No external packages** required
+- **No Python runtime** needed  
+- **No complex configuration** files
+- **Pure shell scripts** using OpenWRT's built-in tools
+
+**Requirements:** Just OpenWRT 22.03+ with firewall4 (standard installation)
+
+## 🔥 Why Not fail2ban?
+
+This solution was born from the limitations of fail2ban on OpenWRT:
+
+- **fail2ban compatibility issues** with OpenWRT's logging system
+- **Heavy Python dependencies** not suitable for resource-constrained routers  
+- **Complex configuration** requiring manual setup
+- **Generic rules** not optimized for OpenWRT's firewall4/nftables
+
+**Our solution is purpose-built for OpenWRT** with zero external dependencies!
+
 ## 🚀 Quick Installation
 
 ### One-Line Install
