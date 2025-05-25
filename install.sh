@@ -2,7 +2,7 @@
 # OpenWRT Auto-Security System Installer
 # Advanced automated intrusion detection and blocking for OpenWRT
 # Version: 1.0
-# Author: Rasmus Kjærbo (raskjaerbo / componental.co)
+# Author: Rasmus Kjærbo (rallevondalle / componental.co)
 # Based on real-world enterprise security research
 
 set -e
