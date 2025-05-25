@@ -1,13 +1,13 @@
 #!/bin/sh
 # OpenWRT Auto-Security System Installer
 # Advanced automated intrusion detection and blocking for OpenWRT
-# Version: 1.0
+# Version: 1.1
 # Author: Rasmus Kjærbo (rallevondalle / componental.co)
 # Based on real-world enterprise security research
 
 set -e
 
-VERSION="1.0"
+VERSION="1.1"
 INSTALL_DIR="/opt/auto-security"
 CONFIG_FILE="$INSTALL_DIR/auto-security.conf"
 LOG_FILE="/tmp/auto-security.log"
@@ -68,157 +68,21 @@ create_directories() {
     mkdir -p "/etc/auto-security"
 }
 
-install_auto_ban_script() {
-    log "Installing auto-ban detection script..."
-    
-    cat > "$INSTALL_DIR/auto_ban.sh" << 'EOF'
-#!/bin/sh
-# Auto-Ban Script - Detects and blocks repeat attackers
-# Part of OpenWRT Auto-Security System
-
-CONFIG_FILE="/opt/auto-security/auto-security.conf"
-LOGFILE="/opt/auto-security/logs/banned_ips.log"
-
-# Load configuration
-if [ -f "$CONFIG_FILE" ]; then
-    . "$CONFIG_FILE"
-else
-    # Default configuration
-    ATTACK_THRESHOLD=5
-    BAN_DURATION=3600
-    SCAN_PERIOD="$(date +'%b %d')"
-fi
-
-DATE="$SCAN_PERIOD"
-
-log_ban() {
-    echo "$(date): $1" | tee -a "$LOGFILE"
-    logger -t AUTO-SECURITY "$1"
+install_utils() {
+    log "Installing utility functions..."
+    cp "$(dirname "$0")/src/utils.sh" "$INSTALL_DIR/utils.sh"
+    chmod +x "$INSTALL_DIR/utils.sh"
 }
 
-# Main detection logic
-log_ban "Scanning for repeat attackers (threshold: $ATTACK_THRESHOLD attacks)..."
-
-# Find IPs that attacked more than threshold today
-logread | grep "Log-Blocked-WAN-Access" | grep "$DATE" | \
-sed 's/.*SRC=\([0-9.]*\).*/\1/' | sort | uniq -c | \
-awk -v threshold="$ATTACK_THRESHOLD" '$1 > threshold {print $2, $1}' | while read IP COUNT; do
-    
-    # Check if already banned
-    if ! nft list ruleset | grep -q "ip saddr $IP drop"; then
-        log_ban "THREAT DETECTED: Banning $IP after $COUNT attacks"
-        
-        # Insert at TOP of chain (before logging rules)
-        nft insert rule inet fw4 input_wan ip saddr $IP counter drop comment "auto-banned-$IP"
-        
-        # Optional: Add to banlist with timestamp
-        echo "$(date '+%Y-%m-%d %H:%M:%S') $IP $COUNT" >> "$INSTALL_DIR/logs/banlist.txt"
-        
-        log_ban "SUCCESS: $IP blocked permanently"
-    fi
-done
-
-# Summary
-TOTAL_BANNED=$(nft list ruleset | grep "auto-banned" | wc -l)
-log_ban "Auto-ban scan complete. Active bans: $TOTAL_BANNED"
-EOF
-
+install_auto_ban_script() {
+    log "Installing auto-ban detection script..."
+    cp "$(dirname "$0")/src/auto_ban.sh" "$INSTALL_DIR/auto_ban.sh"
     chmod +x "$INSTALL_DIR/auto_ban.sh"
 }
 
 install_monitoring_script() {
     log "Installing monitoring and reporting script..."
-    
-    cat > "$INSTALL_DIR/monitor.sh" << 'EOF'
-#!/bin/sh
-# Monitoring Script - Provides security analytics and reports
-# Part of OpenWRT Auto-Security System
-
-INSTALL_DIR="/opt/auto-security"
-
-generate_report() {
-    echo "=============================================="
-    echo "  OpenWRT Auto-Security Status Report"
-    echo "  Generated: $(date)"
-    echo "=============================================="
-    echo ""
-    
-    echo "🛡️  PROTECTION STATUS:"
-    echo "   Active banned IPs: $(nft list ruleset | grep 'auto-banned' | wc -l)"
-    echo "   Total attacks today: $(logread | grep 'Log-Blocked-WAN-Access' | grep "$(date +'%b %d')" | wc -l)"
-    echo ""
-    
-    echo "🎯 TOP THREAT SOURCES (Last 24 hours):"
-    logread | grep "Log-Blocked-WAN-Access" | grep "$(date +'%b %d')" | \
-    sed 's/.*SRC=\([0-9.]*\).*/\1/' | sort | uniq -c | sort -nr | head -5 | \
-    while read count ip; do
-        echo "   $ip: $count attacks"
-    done
-    echo ""
-    
-    echo "🔍 TARGET PORT ANALYSIS:"
-    logread | grep "Log-Blocked-WAN-Access" | grep "$(date +'%b %d')" | \
-    grep -o "DPT=[0-9]*" | sed 's/DPT=//' | sort | uniq -c | sort -nr | head -5 | \
-    while read count port; do
-        case $port in
-            22) service="SSH" ;;
-            80) service="HTTP" ;;
-            443) service="HTTPS" ;;
-            3389) service="RDP" ;;
-            5432) service="PostgreSQL" ;;
-            445) service="SMB" ;;
-            *) service="Unknown" ;;
-        esac
-        echo "   Port $port ($service): $count attempts"
-    done
-    echo ""
-    
-    echo "📊 RECENT ACTIVITY:"
-    echo "   Last 5 blocked attacks:"
-    logread | grep "Log-Blocked-WAN-Access" | tail -5 | while read line; do
-        timestamp=$(echo "$line" | cut -d' ' -f1-4)
-        ip=$(echo "$line" | sed 's/.*SRC=\([0-9.]*\).*/\1/')
-        port=$(echo "$line" | sed 's/.*DPT=\([0-9]*\).*/\1/')
-        echo "   $timestamp - $ip → Port $port"
-    done
-    echo ""
-    
-    echo "=============================================="
-}
-
-case "$1" in
-    "report")
-        generate_report
-        ;;
-    "live")
-        echo "🔴 LIVE ATTACK MONITORING (Press Ctrl+C to stop)"
-        echo "Timestamp                 | Source IP      | Target Port"
-        echo "---------------------------------------------------------"
-        logread -f | grep "Log-Blocked-WAN-Access" | while read line; do
-            timestamp=$(echo "$line" | cut -d' ' -f1-4)
-            ip=$(echo "$line" | sed 's/.*SRC=\([0-9.]*\).*/\1/')
-            port=$(echo "$line" | sed 's/.*DPT=\([0-9]*\).*/\1/')
-            printf "%-25s | %-14s | %s\n" "$timestamp" "$ip" "$port"
-        done
-        ;;
-    "banned")
-        echo "🚫 CURRENTLY BANNED IPs:"
-        nft list ruleset | grep "auto-banned" | sed 's/.*ip saddr \([0-9.]*\) .*/\1/' | \
-        while read ip; do
-            count=$(grep "$ip" "$INSTALL_DIR/logs/banlist.txt" 2>/dev/null | tail -1 | cut -d' ' -f4)
-            echo "   $ip (${count:-unknown} attacks)"
-        done
-        ;;
-    *)
-        echo "Usage: $0 {report|live|banned}"
-        echo ""
-        echo "  report  - Generate security status report"
-        echo "  live    - Monitor attacks in real-time"
-        echo "  banned  - List currently banned IPs"
-        ;;
-esac
-EOF
-
+    cp "$(dirname "$0")/src/monitor.sh" "$INSTALL_DIR/monitor.sh"
     chmod +x "$INSTALL_DIR/monitor.sh"
 }
 
@@ -249,6 +113,10 @@ ENABLE_ALERTS=1
 # Email alerts (optional - requires additional setup)
 ALERT_EMAIL=""
 SMTP_SERVER=""
+
+# Performance settings
+MAX_LOG_SIZE=100M
+PERFORMANCE_MONITORING=1
 EOF
 }
 
@@ -278,6 +146,10 @@ setup_logging() {
         echo "    option log_limit '10/minute'"
         echo ""
     fi
+    
+    # Setup log rotation
+    . "$INSTALL_DIR/utils.sh"
+    setup_log_rotation
 }
 
 setup_cron() {
@@ -319,12 +191,16 @@ case "\$1" in
             echo "Usage: auto-security unban <IP>"
             exit 1
         fi
+        if ! . "$INSTALL_DIR/utils.sh" && validate_ip "\$2"; then
+            echo "Invalid IP address: \$2"
+            exit 1
+        fi
         echo "🔓 Unbanning \$2..."
         nft delete rule inet fw4 input_wan ip saddr \$2 counter drop comment "auto-banned-\$2" 2>/dev/null || echo "IP not found in ban list"
         ;;
     "reset")
         echo "🔄 Removing all bans..."
-        nft list ruleset | grep "auto-banned" | sed 's/.*ip saddr \([0-9.]*\) .*/\1/' | while read ip; do
+        nft list ruleset | grep "auto-banned" | sed 's/.*ip saddr \([0-9.]*\) .*/\1/' | while read -r ip; do
             nft delete rule inet fw4 input_wan ip saddr \$ip counter drop comment "auto-banned-\$ip"
         done
         echo "All bans removed"
@@ -366,6 +242,7 @@ main() {
     check_openwrt
     check_firewall4
     create_directories
+    install_utils
     install_auto_ban_script
     install_monitoring_script
     create_configuration
